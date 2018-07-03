@@ -1,0 +1,21 @@
+* {
+  -fx-font-family: 'Leelawadee UI';
+}
+
+.message-timestamp {
+  -fx-font-family: 'Courier New';
+  -fx-font-size: 8;
+}
+
+.message-author {
+  -fx-font-size: 14;
+  -fx-font-weight: bolder;
+}
+
+.attachments > * {
+  -fx-font-style: italic;
+}
+
+.stdout {
+  -fx-font-family: 'Courier New';
+}
