@@ -11,9 +11,9 @@ client.log.with {
   formatter = { "[${it.level.name.toUpperCase()}] $it.by: $it.content" }
   debug.enable()
 }
-lolhr.customCommands.loadlogs = { String args ->
-  // fills the current chat with downloaded logs
-  lolhr.pane.chat?.loadLogs(args ? Integer.parseInt(args) : 50)
+lolhr.customCommands.addcommand = { String args ->
+  def (name, code) = args.split(/\s+/, 2)
+  lolhr.customCommands[name] = { new GroovyShell(args: it).evaluate(code) }
 }
 ```
 
@@ -25,5 +25,6 @@ Available commands:
 /im, /implicit <command>   -- feeds the command with any input, unless the Post button is used
 /ex, /explicit             -- leaves implicit state
 /login [token]             -- logs in if not logged in already, using config token if no token is given
+/logout                    -- logs out
 /goto <channel/guild>      -- takes an ID or a name of a channel or guild and goes to it
 ```

@@ -2,17 +2,17 @@
   -fx-font-family: 'Leelawadee UI';
 }
 
-.message-timestamp {
+.log-timestamp, .message-timestamp, .message-edit-timestamp {
   -fx-font-family: 'Courier New';
-  -fx-font-size: 8;
+  -fx-font-size: 9;
 }
 
 .message-author {
   -fx-font-size: 14;
-  -fx-font-weight: bolder;
+  -fx-font-weight: bold;
 }
 
-.attachments > * {
+.attachments, .message-edit-text {
   -fx-font-style: italic;
 }
 
