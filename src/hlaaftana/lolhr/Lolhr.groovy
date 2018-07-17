@@ -16,6 +16,8 @@ import javafx.scene.control.Dialog
 import javafx.scene.control.Label
 import javafx.scene.paint.Color
 import javafx.stage.Stage
+import org.codehaus.groovy.control.CompilerConfiguration
+import org.codehaus.groovy.control.customizers.ImportCustomizer
 
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -35,8 +37,9 @@ class Lolhr {
 	Guild guild
 	Channel getChannel() { chat?.channel }
 	Chat chat
-	Map<Snowflake, Chat> chats = [:]
-	Map<Snowflake, Channel> guildDefaultChannels = [:]
+	Map<Snowflake, Chat> chats = new HashMap<>()
+	Map<Snowflake, Channel> guildDefaultChannels = new HashMap<>()
+	Map<Snowflake, List<ChatEvent>> chatEvents = new HashMap<>()
 
 	Lolhr() {
 		configSlurper.binding = [lolhr: this, client: client, hookReady: this.&hookReady,
@@ -49,19 +52,17 @@ class Lolhr {
 			initialError = "I need a config file like config.groovy, you can supply in arguments"
 			return
 		}
+		client.cacheMessages = false
 		client.addListener(new DiscordRawWSListener() {
 			void fire(String type, Map<String, Object> data) {
 				if (type == 'READY') {
 					readied.set(true)
 					for (hook in readyHooks) hook()
 				} else if (type == 'MESSAGE_CREATE') {
-					final ch = chats.get(data.channel_id)
-					if (null != ch) {
-						final m = new Message(client, data)
-						Platform.runLater {
-							ch.messages.items.add(m)
-						}
-					}
+					final m = new Message(client, data)
+					feedChat(Snowflake.swornString(data.channel_id), new MessageEvent(m))
+				} else if (type == 'MESSAGE_UPDATE') {
+
 				}
 			}
 		})
@@ -81,6 +82,14 @@ class Lolhr {
 				new Dialog(title: "Lolhr", contentText: ex.toString()).show()
 			}
 		}
+	}
+
+	void feedChat(Snowflake channelId, ChatEvent event) {
+		def ch = chats[channelId]
+		def p = chatEvents[channelId]
+		if (null == p) chatEvents[channelId] = [event]
+		else p.add(event)
+		if (null != ch) ch.feed(event)
 	}
 
 	void start(Stage stage) {
@@ -115,7 +124,7 @@ class Lolhr {
 	void log(String msg, Color color) {
 		Platform.runLater {
 			pane.log.items.add(new LogEntry(message: msg, bg: color))
-			pane.infoBox.selectionModel.select(pane.logTab)
+			pane.switchToLog()
 		}
 	}
 
@@ -188,38 +197,6 @@ class Lolhr {
 		}
 	}
 
-	/*List<String> parseMultipleCommands(String text) {
-		def result = new ArrayList<String>()
-		int startIndex = text.charAt(0) == ((char) '/') ? 1 : 0
-		def backslashIndexes = new ArrayList<Integer>()
-		boolean escaped = false
-		for (int i = startIndex; i < text.length(); ++i) {
-			final c = text.charAt(i)
-			if (escaped) {
-				if (c == ((char) '\\') || c == ((char) '/'))
-					backslashIndexes.add(i - startIndex - 1)
-				escaped = false
-			} else {
-				if (c == ((char) '/')) {
-					final len = i - startIndex - backslashIndexes.size()
-					def builder = new StringBuilder(len)
-					def bsIter = backslashIndexes.iterator()
-					def bsNext = bsIter.hasNext() ? bsIter.next() : -1
-					for (int j = startIndex; j < i; ++j) {
-						if (bsNext != j)
-							builder.append(text.charAt(j))
-						else if (bsIter.hasNext()) bsNext = bsIter.next()
-					}
-					result.add(builder.toString().trim())
-					startIndex = i + 1
-					backslashIndexes.clear()
-				}
-				escaped = c == (char) '\\'
-			}
-		}
-		result
-	}*/
-
 	void runCommandsSequential(String rest) {
 		def iter = new MultipleCommandIterator(rest)
 		while (iter.hasNext()) runCommand(iter.next(), false)
@@ -240,6 +217,16 @@ class Lolhr {
 			im: 'implicit', ex: 'explicit', st: 'stacktrace',
 			ll: 'loadlogs', cl: 'chatlimit')
 	Map<String, Closure<Void>> customCommands = new HashMap<>()
+	CompilerConfiguration evalConfig = new CompilerConfiguration();
+
+	{
+		def im = new ImportCustomizer()
+		im.addStarImports('hlaaftana.discordg', 'hlaaftana.discordg.objects',
+			'hlaaftana.discordg.util', 'hlaaftana.discordg.exceptions',
+			'hlaaftana.discordg.net', 'hlaaftana.discorg.collections')
+		im.addStarImports('hlaaftana.lolhr')
+		evalConfig.addCompilationCustomizers(im)
+	}
 
 	void runCommand(String text) {
 		final slashed = text.charAt(0) == (char) '/'
@@ -263,23 +250,32 @@ class Lolhr {
 			runCommandsParallel(rest)
 		} else if (cmdname == 'or') {
 			runCommandsSequential(rest)
+		} else if (cmdname == 'nav' || cmdname == 'navigation') {
+			pane.switchToNavigation()
+		} else if (cmdname == 'showlog') {
+			pane.switchToLog()
 		} else if (cmdname == 'eval' || cmdname == 'e')
-			try {
-				def binding = [lolhr: this, last: lastEvaluated,
-					lastException: lastEvalThrowable,
-					channel: channel, channelList: pane.channels,
-					guild: guild, guildList: pane.guilds,
-					chat: chat, stage: stage,
-					post: null == channel ? null :
-							channel.&sendMessage,
-					command: this.&runCommand,
-					now: System.&currentTimeMillis]
-				lastEvaluated = new GroovyShell(new Binding(binding))
-						.evaluate(rest)
-				info lastEvaluated.toString()
-			} catch (ex) {
-				lastEvalThrowable = ex
-				error "do /stacktrace. $ex.message"
+			Thread.start {
+				try {
+					def binding = [lolhr: this, last: lastEvaluated,
+							lastException: lastEvalThrowable,
+							channel: channel, channelList: pane.channels,
+							guild: guild, guildList: pane.guilds,
+							chat: chat, stage: stage,
+							post: null == channel ? null :
+									channel.&sendMessage,
+							command: this.&runCommand,
+							now: System.&currentTimeMillis,
+							client: client, config: config]
+					Platform.runLater {
+						lastEvaluated = new GroovyShell(new Binding(binding), evalConfig)
+								.evaluate(rest)
+						info lastEvaluated.toString()
+					}
+				} catch (ex) {
+					lastEvalThrowable = ex
+					error "do /stacktrace. $ex.message"
+				}
 			}
 		else if (cmdname == 'implicit' || cmdname == 'im')
 			implicitCommand = rest

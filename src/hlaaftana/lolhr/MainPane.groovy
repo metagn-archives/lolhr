@@ -1,7 +1,9 @@
 package hlaaftana.lolhr
 
 import groovy.transform.CompileStatic
+import groovy.transform.TupleConstructor
 import hlaaftana.discordg.Permissions
+import hlaaftana.discordg.Snowflake
 import hlaaftana.discordg.objects.Channel
 import hlaaftana.discordg.objects.Guild
 import hlaaftana.discordg.objects.Member
@@ -25,6 +27,7 @@ import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.scene.text.TextAlignment
 import javafx.scene.text.TextFlow
+import javafx.scene.Node
 import javafx.stage.Popup
 import javafx.util.Callback
 
@@ -85,7 +88,7 @@ class MainPane extends GridPane {
 		chatBox.columnConstraints.add(cbcol1)
 
 		lolhr.hookReady {
-			guilds.items.setAll(lolhr.client.guilds)
+			Platform.runLater { guilds.items.setAll(lolhr.client.guilds) }
 		}
 
 		guilds.selectionModel.selectedItemProperty().addListener(new ChangeListener<Guild>() {
@@ -101,9 +104,7 @@ class MainPane extends GridPane {
 				final newValue = nv ?: lolhr.guildDefaultChannels[lolhr.guild.id] ?: lolhr.guild.defaultChannel
 				final oldChannel = lolhr.channel
 				lolhr.guildDefaultChannels[newValue.guildId] = newValue
-				final logs = newValue.cachedLogs
 				lolhr.chat = moveChat(null == oldChannel ? null : lolhr.chats[oldChannel.id], newValue)
-				lolhr.chat.messages.items.setAll(logs)
 			}
 		})
 
@@ -119,6 +120,8 @@ class MainPane extends GridPane {
 
 	Chat addChat(Channel channel) {
 		final c = new Chat(lolhr, channel)
+		final events = lolhr.chatEvents[channel.id]
+		if (null != events) c.messages.items.setAll(events)
 		lolhr.chats.put(channel.id, c)
 		c
 	}
@@ -129,6 +132,14 @@ class MainPane extends GridPane {
 		chatBox.add(c, 0, 0)
 		lolhr.chat = c
 		c
+	}
+
+	void switchToNavigation() {
+		infoBox.selectionModel.select(navigationTab)
+	}
+
+	void switchToLog() {
+		infoBox.selectionModel.select(logTab)
 	}
 }
 
@@ -145,9 +156,9 @@ class LogEntry {
 				setGraphic null
 				return
 			}
-			def ts = new Text(MessageCell.toString(item.time))
+			def ts = new Label(ChatCell.toString(item.time))
 			ts.styleClass.add('log-timestamp')
-			def m = new Text(' '.concat(item.message))
+			def m = new Label(' '.concat(item.message))
 			m.styleClass.add('log-message')
 			def tf = new TextFlow(ts, m)
 			tf.styleClass.add('log-entry')
@@ -155,6 +166,32 @@ class LogEntry {
 			setGraphic tf
 		}
 	}
+}
+
+@CompileStatic
+abstract class ChatEvent {
+	abstract LocalDateTime getTimestamp()
+}
+
+@CompileStatic
+@TupleConstructor
+class MessageEvent extends ChatEvent {
+	Message message
+	LocalDateTime getTimestamp() { MiscUtil.dateToLDT(message.timestamp) }
+}
+
+@CompileStatic
+@TupleConstructor
+class EditEvent extends ChatEvent {
+	Map data
+	LocalDateTime timestamp = LocalDateTime.now()
+}
+
+@CompileStatic
+@TupleConstructor
+class DeleteEvent extends ChatEvent {
+	String id
+	LocalDateTime timestamp = LocalDateTime.now()
 }
 
 @CompileStatic
@@ -286,72 +323,99 @@ class ConsolePane extends GridPane {
 @CompileStatic
 class Chat extends GridPane {
 	Lolhr lolhr
-	ListView<Message> messages
-	ListChangeListener<Message> pageListener
+	ListView<ChatEvent> messages
+	ListChangeListener<ChatEvent> pageListener
 	Channel channel
 
 	Chat(Lolhr lolhr, Channel channel) {
+		this.lolhr = lolhr
 		this.channel = channel
 		styleClass.add('chat')
 		styleClass.add('chat-in-channel-name-' + channel.name)
 		styleClass.add('chat-in-channel-from-' + channel.name)
 		messages = new ListView<>()
 		messages.styleClass.add('messages')
-		messages.cellFactory = new Callback<ListView<Message>, ListCell<Message>>() {
-			ListCell<Message> call(ListView<Message> param) {
-				new MessageCell(lolhr, messages)
-			}
-		}
+		messages.selectionModel = new NoSelectionModel<ChatEvent>()
+		messages.cellFactory = new CellFactory()
 		columnConstraints.add(new ColumnConstraints(hgrow: Priority.ALWAYS))
 		rowConstraints.add(new RowConstraints(vgrow: Priority.ALWAYS))
 		add(messages, 0, 0)
 	}
 
 	void loadLogs(int num = 50) {
-		final s = messages.items.size()
+		def itms = messages.items
+		final s = itms.size()
 		if (s >= num) return
-		def x = new Message[Math.max(s, num)]
+		def x = new ChatEvent[Math.max(s, num)]
 		final extra = num - s
-		final logs = channel.forceRequestLogs(extra, messages.items.empty ? null : messages.items.last())
-		System.arraycopy(logs.toArray(), 0, x, 0, logs.size())
-		System.arraycopy(messages.items.toArray(), 0, x, extra, s)
-		messages.items.setAll(x)
+		Message lastMsg = null
+		def iter = itms.iterator().reverse()
+		while (iter.hasNext()) {
+			def next = iter.next()
+			if (next instanceof MessageEvent) {
+				lastMsg = ((MessageEvent) next).message
+				break
+			}
+		}
+		final logs = channel.forceRequestLogs(extra, lastMsg)
+		for (int i = 0; i < logs.size(); ++i) {
+			x[i] = new MessageEvent(logs.get(i))
+		}
+		System.arraycopy(itms.toArray(), 0, x, extra, s)
+		Arrays.sort(x, new Comparator<ChatEvent>() {
+			@Override
+			int compare(ChatEvent o1, ChatEvent o2) {
+				o2.timestamp.compareTo(o1.timestamp)
+			}
+		})
+		lolhr.chatEvents[channel.id] = x.toList()
+		itms.setAll(x)
 	}
 
 	void removeLimit() { messages.items.removeListener(pageListener) }
 	void limit(final int p) {
-		messages.items.addListener new ListChangeListener<Message>() {
+		messages.items.addListener new ListChangeListener<ChatEvent>() {
 			@CompileStatic
-			void onChanged(ListChangeListener.Change<? extends Message> c) {
+			void onChanged(ListChangeListener.Change<? extends ChatEvent> c) {
 				final x = c.list.size() - p
 				c.list.remove(0, x)
 			}
 		}
 	}
 
-	ListView<Message> addTemp(List<Message> messages) {
-		def temp = new ListView<Message>()
-		temp.cellFactory = new Callback<ListView<Message>, ListCell<Message>>() {
-			ListCell<Message> call(ListView<Message> param) {
-				new MessageCell(lolhr, temp)
-			}
+	ListView<ChatEvent> addTemp(List<Message> messages) {
+		def temp = new ListView<ChatEvent>()
+		temp.cellFactory = new CellFactory()
+		def msgs = new MessageEvent[messages.size()]
+		for (int i = 0; i < msgs.length; ++i) {
+			msgs[i] = new MessageEvent(messages.get(i))
 		}
-		temp.items.setAll(messages)
+		temp.items.setAll(msgs)
 		add(temp, 0, 1)
 		temp
 	}
 
-	void removeTemp(ListView<Message> view) {
+	void removeTemp(ListView<ChatEvent> view) {
 		children.remove(view)
+	}
+
+	void feed(ChatEvent event) {
+		Platform.runLater { messages.items.add(event) }
+	}
+
+	class CellFactory implements Callback<ListView<ChatEvent>, ListCell<ChatEvent>> {
+		ListCell<ChatEvent> call(ListView<ChatEvent> param) {
+			new ChatCell(lolhr, param)
+		}
 	}
 }
 
 @CompileStatic
-class MessageCell extends ListCell<Message> {
+class ChatCell extends ListCell<ChatEvent> {
 	Lolhr lolhr
-	ListView<Message> view
+	ListView<ChatEvent> view
 
-	MessageCell(Lolhr lolhr, ListView<Message> view) {
+	ChatCell(Lolhr lolhr, ListView<ChatEvent> view) {
 		this.lolhr = lolhr
 		this.view = view
 		setWrapText(true)
@@ -371,27 +435,193 @@ class MessageCell extends ListCell<Message> {
 		String.valueOf(tsstr)
 	}
 
-	void updateItem(Message message, boolean empty) {
-		super.updateItem(message, empty)
-		if (empty || null == message) {
+	void updateItem(ChatEvent event, boolean empty) {
+		super.updateItem(event, empty)
+		if (empty || null == event) {
 			setGraphic null
 			return
 		}
 		//if (graphic != null) return
+		if (event instanceof MessageEvent) {
+			def msg = ((MessageEvent) event).message
+			setGraphic render(msg)
+			setTooltip tooltip(msg)
+			setContextMenu contextMenu(msg)
+		}
+		else if (event instanceof EditEvent) {
+			final ts = event.timestamp
+			def tsn = new Label(toString(ts) + ' ')
+			tsn.textAlignment = TextAlignment.CENTER
+			tsn.styleClass.add('message-edit-timestamp')
+			def map = new HashMap(((EditEvent) event).data)
+			map.remove('channel_id')
+			def upm = new Label('updated message ')
+			def strid = (String) map.remove('id')
+			def snowid = new Snowflake(strid)
+			def idn = new Hyperlink(strid)
+			idn.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent ev) {
+					for (int i = 0; i < view.items.size(); ++i) {
+						final e = view.items[i]
+						if (e instanceof MessageEvent && ((MessageEvent) e).message.id == snowid)
+							view.scrollTo(i)
+					}
+				}
+			}
+			idn.styleClass.add('message-edit-jump')
+			def builder = new StringBuilder(' ')
+			final entries = map.entrySet().toList()
+			for (int i = 0; i < entries.size(); ++i) {
+				if (i != 0) builder.append(', ')
+				final entry = entries[i]
+				builder.append(entry.key).append(': ').append(entry.value.inspect())
+			}
+			def edn = new Label(builder.toString())
+			setGraphic new TextFlow(tsn, upm, idn, edn)
+		} else if (event instanceof DeleteEvent) {
+			final ts = event.timestamp
+			def tsn = new Label(toString(ts) + ' ')
+			tsn.textAlignment = TextAlignment.CENTER
+			tsn.styleClass.add('message-delete-timestamp')
+			def upm = new Label('deleted message ')
+			def strid = ((DeleteEvent) event).id
+			def snowid = new Snowflake(strid)
+			def idn = new Hyperlink(strid)
+			idn.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent ev) {
+					for (int i = 0; i < view.items.size(); ++i) {
+						final e = view.items[i]
+						if (e instanceof MessageEvent && ((MessageEvent) e).message.id == snowid)
+							view.scrollTo(i)
+					}
+				}
+			}
+			idn.styleClass.add('message-delete-jump')
+			setGraphic new TextFlow(tsn, upm, idn)
+		}
+	}
+
+	Tooltip tooltip(Message message) {
+		def tool = new StringBuilder("author: ")
+		tool.append(message.author.unique)
+		if (message.tts) tool.append(", tts")
+		if (message.pinned) tool.append(", pinned")
+		def tip = new Tooltip(tool.toString())
+		tip.styleClass.add('message-tooltip')
+		tip
+	}
+
+	ContextMenu contextMenu(Message message) {
+		final isOurs = message.author.id == message.client.id
+		def contxt = new ContextMenu()
+		def contextHide = new MenuItem('hide')
+		contextHide.onAction = new EventHandler<ActionEvent>() {
+			void handle(ActionEvent it) {
+				hide(message)
+			}
+		}
+		contxt.items.add(contextHide)
+		def contextFiddle = new MenuItem('fiddle')
+		contextFiddle.onAction = new EventHandler<ActionEvent>() {
+			void handle(ActionEvent it) {
+				editMode(message, false)
+			}
+		}
+		contxt.items.add(contextFiddle)
+		if (isOurs) {
+			def contextEdit = new MenuItem('edit')
+			contextEdit.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent it) {
+					editMode(message)
+				}
+			}
+			contxt.items.add(contextEdit)
+		}
+		final canManage = message.channel.permissionsFor(message.client).get(Permissions.BitOffsets.MANAGE_MESSAGES)
+		if (isOurs || canManage) {
+			def contextDelete = new MenuItem('delete')
+			contextDelete.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent it) {
+					message.delete()
+				}
+			}
+			contxt.items.add(contextDelete)
+			def contextDeleteHide = new MenuItem('delete & hide')
+			contextDeleteHide.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent it) {
+					message.delete()
+					hide(message)
+				}
+			}
+			contxt.items.add(contextDeleteHide)
+		}
+		if (canManage) {
+			def contextDelete = new MenuItem('pin')
+			contextDelete.onAction = new EventHandler<ActionEvent>() {
+				void handle(ActionEvent it) {
+					message.pin()
+				}
+			}
+			contxt.items.add(contextDelete)
+		}
+		contxt.items.add(new SeparatorMenuItem())
+		def reactions = new MenuItem('emoji tally')
+		reactions.onAction = new EventHandler<ActionEvent>() {
+			void handle(ActionEvent it) {
+				def popup = new Popup()
+				for (reac in message.anyReactions) {
+					def reactors = message.client.requestReactors(message.channel,
+							message, reac.name)
+					def reactf = new TextFlow()
+					reactf.styleClass.add('emoji-tally-item')
+					def emojitext = new Label(reac.name + ' ')
+					emojitext.styleClass.add('emoji-tally-emoji')
+					for (int i = 0; i < reactors.size(); ++i) {
+						if (i != 0) reactf.children.add(new Text(', '))
+						def user = new Label(reactors[i].unique)
+						user.styleClass.add('emoji-tally-user')
+						reactf.children.add(user)
+					}
+					popup.content.add(reactf)
+				}
+				popup.show(lolhr.stage)
+			}
+		}
+		def copyid = new MenuItem('copy id')
+		copyid.onAction = new EventHandler<ActionEvent>() {
+			void handle(ActionEvent it) {
+				Clipboard.systemClipboard.setContent(
+						(DataFormat.PLAIN_TEXT): (Object) message.id.toString())
+			}
+		}
+		contxt.items.add(copyid)
+		def copytext = new MenuItem('copy text')
+		copytext.onAction = new EventHandler<ActionEvent>() {
+			void handle(ActionEvent it) {
+				Clipboard.systemClipboard.setContent(
+						(DataFormat.PLAIN_TEXT): (Object) message.content)
+			}
+		}
+		contxt.items.add(copytext)
+		contxt.styleClass.add('message-context-menu')
+		contxt
+	}
+
+	Node render(Message message) {
 		final ts = MiscUtil.dateToLDT(message.timestamp)
-		def tsn = new Text(toString(ts) + ' ')
+		def tsn = new Label(toString(ts) + ' ')
 		tsn.textAlignment = TextAlignment.CENTER
 		tsn.styleClass.add('message-timestamp')
 		def author = message.getAuthor(true)
-		def mem = new Text(author.toString() + ' ')
+		def mem = new Label(author.toString() + ' ')
 		if (author instanceof Member && !((Member) author).roleIds.empty) {
 			final rgb = ((Member) author).colorValue
 			if (rgb != 0)
-				mem.fill = Color.rgb((rgb & 0xFF0000) >> 16,
+				mem.textFill = Color.rgb((rgb & 0xFF0000) >> 16,
 						(rgb & 0x00FF00) >> 8, rgb & 0x0000FF)
 		}
 		mem.styleClass.add('message-author')
-		def content = new Text(message.content)
+		def content = new Label(message.content)
 		content.styleClass.add('message-content')
 		final isOurs = message.author.id == message.client.id
 		content.onMouseClicked = new EventHandler<MouseEvent>() {
@@ -405,15 +635,15 @@ class MessageCell extends ListCell<Message> {
 		if (!attachments.empty) {
 			def att = new TextFlow()
 			att.styleClass.add('attachments')
-			def tx = new Text(" files: ")
+			def tx = new Label(" files: ")
 			att.children.add(tx)
 			boolean x = false
 			for (final attach : attachments) {
-				if (x) att.children.add(new Text(", "))
+				if (x) att.children.add(new Label(", "))
 				else x = true
 				def hyper = new Hyperlink(attach.url)
 				hyper.styleClass.add('attachment-url')
-				def siz = new Text(" (${toMB(attach.size)} MB)")
+				def siz = new Label(" (${toMB(attach.size)} MB)")
 				siz.styleClass.add('attachment-size')
 				att.children.addAll(hyper, siz)
 			}
@@ -421,94 +651,21 @@ class MessageCell extends ListCell<Message> {
 		}
 		final editts = message.editedAt
 		if (editts) {
-			def node = new Text(" edited get ")
-			def nodets = new Text(toString(MiscUtil.dateToLDT(message.editedAt)))
+			def node = new Label(" edited get ")
+			def nodets = new Label(toString(MiscUtil.dateToLDT(message.editedAt)))
 			nodets.styleClass.add('message-edit-timestamp')
 			def nodetf = new TextFlow(node, nodets)
 			nodetf.styleClass.add('message-edit-text')
 			tf.children.add(nodetf)
 		}
-		setGraphic tf
-		def tool = new StringBuilder("author: ")
-		tool.append(message.author.unique)
-		if (message.tts) tool.append(", tts")
-		if (message.pinned) tool.append(", pinned")
-		def tip = new Tooltip(tool.toString())
-		tip.styleClass.add('message-tooltip')
-		setTooltip tip
-		cmBlock: {
-			def contxt = new ContextMenu()
-			boolean any = false
-			if (isOurs) {
-				any = true
-				def contextEdit = new MenuItem('edit')
-				contextEdit.onAction = new EventHandler<ActionEvent>() {
-					void handle(ActionEvent it) {
-						editMode(message)
-					}
-				}
-				contxt.items.add(contextEdit)
-			}
-			if (isOurs || message.channel.permissionsFor(message.client)
-					.get(Permissions.BitOffsets.MANAGE_MESSAGES)) {
-				any = true
-				def contextDelete = new MenuItem('delete')
-				contextDelete.onAction = new EventHandler<ActionEvent>() {
-					void handle(ActionEvent it) {
-						delete(message)
-					}
-				}
-				contxt.items.add(contextDelete)
-			}
-			if (!any) contxt.items.add(new SeparatorMenuItem())
-			def reactions = new MenuItem('emoji tally')
-			reactions.onAction = new EventHandler<ActionEvent>() {
-				void handle(ActionEvent it) {
-					def popup = new Popup()
-					for (reac in message.anyReactions) {
-						def reactors = message.client.requestReactors(message.channel,
-								message, reac.name)
-						def reactf = new TextFlow()
-						reactf.styleClass.add('emoji-tally-item')
-						def emojitext = new Text(reac.name + ' ')
-						emojitext.styleClass.add('emoji-tally-emoji')
-						for (int i = 0; i < reactors.size(); ++i) {
-							if (i != 0) reactf.children.add(new Text(', '))
-							def user = new Text(reactors[i].unique)
-							user.styleClass.add('emoji-tally-user')
-							reactf.children.add(user)
-						}
-						popup.content.add(reactf)
-					}
-					popup.show(lolhr.stage)
-				}
-			}
-			def copyid = new MenuItem('copy from')
-			copyid.onAction = new EventHandler<ActionEvent>() {
-				void handle(ActionEvent it) {
-					Clipboard.systemClipboard.setContent(
-							(DataFormat.PLAIN_TEXT): (Object) message.id)
-				}
-			}
-			contxt.items.add(copyid)
-			def copyjson = new MenuItem('copy json')
-			copyjson.onAction = new EventHandler<ActionEvent>() {
-				void handle(ActionEvent it) {
-					Clipboard.systemClipboard.setContent(
-							(DataFormat.PLAIN_TEXT): (Object) message.object.toString())
-				}
-			}
-			contxt.items.add(copyjson)
-			contxt.styleClass.add('message-context-menu')
-			setContextMenu contxt
-		}
+		tf
 	}
 
 	static String toMB(int bytes) {
 		(bytes / 1_048_576).round(new MathContext(3, RoundingMode.HALF_UP)).toString()
 	}
 
-	void editMode(Message message) {
+	void editMode(Message message, boolean actuallyEdit = true) {
 		def editArea = new TextArea(message.content)
 		editArea.styleClass.add('edit-input')
 		editArea.onKeyPressed = new EventHandler<KeyEvent>() {
@@ -519,7 +676,7 @@ class MessageCell extends ListCell<Message> {
 					if (it.shiftDown) {
 						editArea.insertText(editArea.caretPosition, "\n")
 					} else {
-						updateItem(message.edit(t), false)
+						setGraphic(render(actuallyEdit ? message.edit(t) : message))
 					}
 					it.consume()
 				}
@@ -528,7 +685,7 @@ class MessageCell extends ListCell<Message> {
 		setGraphic editArea
 	}
 
-	void delete(Message message) {
+	void hide(Message message) {
 		view.items.remove(message)
 	}
 }

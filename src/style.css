@@ -12,7 +12,7 @@
   -fx-font-weight: bold;
 }
 
-.attachments, .message-edit-text {
+.attachments, .message-edit-text, .message-edit-timestamp {
   -fx-font-style: italic;
 }
 
