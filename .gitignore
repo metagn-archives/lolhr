@@ -1,1 +1,4 @@
 *.iml
+config.groovy
+/out/
+/.idea/

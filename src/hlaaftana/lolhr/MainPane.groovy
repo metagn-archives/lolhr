@@ -365,7 +365,7 @@ class Chat extends GridPane {
 		Arrays.sort(x, new Comparator<ChatEvent>() {
 			@Override
 			int compare(ChatEvent o1, ChatEvent o2) {
-				o2.timestamp.compareTo(o1.timestamp)
+				o1.timestamp.compareTo(o2.timestamp)
 			}
 		})
 		lolhr.chatEvents[channel.id] = x.toList()
@@ -612,7 +612,7 @@ class ChatCell extends ListCell<ChatEvent> {
 		def tsn = new Label(toString(ts) + ' ')
 		tsn.textAlignment = TextAlignment.CENTER
 		tsn.styleClass.add('message-timestamp')
-		def author = message.getAuthor(true)
+		def author = message.getAuthor(true) ?: message.author
 		def mem = new Label(author.toString() + ' ')
 		if (author instanceof Member && !((Member) author).roleIds.empty) {
 			final rgb = ((Member) author).colorValue

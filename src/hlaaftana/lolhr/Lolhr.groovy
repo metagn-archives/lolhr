@@ -48,7 +48,8 @@ class Lolhr {
 
 	void begin(String[] args) {
 		def conf = new File(args.length != 0 ? args[0] : 'config.groovy')
-		if (!conf.exists()) {
+		// we don't really need a config
+		if (false && !conf.exists()) {
 			initialError = "I need a config file like config.groovy, you can supply in arguments"
 			return
 		}
@@ -69,7 +70,7 @@ class Lolhr {
 		client.cacheReactions = true
 		client.dontRequestMembersOnReady()
 		client.copyReady = false
-		config = configSlurper.parse(conf.toURI().toURL())
+		config = conf.exists() ? configSlurper.parse(conf.toURI().toURL()) : new ConfigObject()
 		if (null != initialError) return
 		if (config.autoStart) {
 			try {
