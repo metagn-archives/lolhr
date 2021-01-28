@@ -1,7 +1,3 @@
-This is about java FX not about discord. If i or somebody else used this wrong it's not the fault of
-this repository but the fault of the perpetrator, since the library used has ratelimit precautions and
-more crap which will most likely not allow the causing of trouble
-
 Configscript is like:
 
 ```groovy
