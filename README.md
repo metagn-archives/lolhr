@@ -1,3 +1,7 @@
+Old Discord client for bot accounts using Groovy, JavaFX and DiscordG
+(made for educational purposes). Works using a config script and has
+custom commands that allow further scripting. 
+
 Configscript is like:
 
 ```groovy

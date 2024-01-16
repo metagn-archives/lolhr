@@ -1,4 +1,4 @@
-package hlaaftana.lolhr
+package metagn.lolhr
 
 import groovy.transform.CompileStatic
 import javafx.application.Application

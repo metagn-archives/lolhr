@@ -1,14 +1,14 @@
-package hlaaftana.lolhr
+package metagn.lolhr
 
 import groovy.transform.CompileStatic
 import groovy.transform.TupleConstructor
-import hlaaftana.discordg.Permissions
-import hlaaftana.discordg.Snowflake
-import hlaaftana.discordg.objects.Channel
-import hlaaftana.discordg.objects.Guild
-import hlaaftana.discordg.objects.Member
-import hlaaftana.discordg.objects.Message
-import hlaaftana.discordg.util.MiscUtil
+import metagn.discordg.data.Permissions
+import metagn.discordg.data.Snowflake
+import metagn.discordg.data.Channel
+import metagn.discordg.data.Guild
+import metagn.discordg.data.Member
+import metagn.discordg.data.Message
+import metagn.discordg.util.MiscUtil
 import javafx.application.Platform
 import javafx.beans.value.ChangeListener
 import javafx.beans.value.ObservableValue
@@ -27,7 +27,6 @@ import javafx.scene.paint.Color
 import javafx.scene.text.Text
 import javafx.scene.text.TextAlignment
 import javafx.scene.text.TextFlow
-import javafx.scene.Node
 import javafx.stage.Popup
 import javafx.util.Callback
 
@@ -607,7 +606,7 @@ class ChatCell extends ListCell<ChatEvent> {
 		contxt
 	}
 
-	Node render(Message message) {
+	TextFlow render(Message message) {
 		final ts = MiscUtil.dateToLDT(message.timestamp)
 		def tsn = new Label(toString(ts) + ' ')
 		tsn.textAlignment = TextAlignment.CENTER

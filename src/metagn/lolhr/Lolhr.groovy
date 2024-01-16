@@ -1,14 +1,14 @@
-package hlaaftana.lolhr
+package metagn.lolhr
 
 import groovy.transform.CompileStatic
-import hlaaftana.discordg.Client
-import hlaaftana.discordg.DiscordObject
-import hlaaftana.discordg.DiscordRawWSListener
-import hlaaftana.discordg.Snowflake
-import hlaaftana.discordg.exceptions.HTTPException
-import hlaaftana.discordg.objects.Channel
-import hlaaftana.discordg.objects.Guild
-import hlaaftana.discordg.objects.Message
+import metagn.discordg.Client
+import metagn.discordg.data.DiscordObject
+import metagn.discordg.DiscordRawWSListener
+import metagn.discordg.data.Snowflake
+import metagn.discordg.exceptions.HTTPException
+import metagn.discordg.data.Channel
+import metagn.discordg.data.Guild
+import metagn.discordg.data.Message
 import javafx.application.Platform
 import javafx.geometry.Pos
 import javafx.scene.Scene
@@ -222,10 +222,10 @@ class Lolhr {
 
 	{
 		def im = new ImportCustomizer()
-		im.addStarImports('hlaaftana.discordg', 'hlaaftana.discordg.objects',
-			'hlaaftana.discordg.util', 'hlaaftana.discordg.exceptions',
-			'hlaaftana.discordg.net', 'hlaaftana.discorg.collections')
-		im.addStarImports('hlaaftana.lolhr')
+		im.addStarImports('metagn.discordg', 'metagn.discordg.objects',
+			'metagn.discordg.util', 'metagn.discordg.exceptions',
+			'metagn.discordg.net', 'metagn.discorg.collections')
+		im.addStarImports('metagn.lolhr')
 		evalConfig.addCompilationCustomizers(im)
 	}
 
